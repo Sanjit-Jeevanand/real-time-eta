@@ -24,12 +24,16 @@ dependencies = [
     "pyyaml==6.0.3",
     "structlog==25.5.0",
     "prometheus-client==0.24.0",
-    "shapely==2.1.2",
     "httpx==0.28.1",
 ]
 
 [project.optional-dependencies]
 nn = ["torch==2.9.1"]
+geo = [
+    "shapely==2.1.2",
+    "pyshp==2.3.1",
+    "pyproj==3.7.2",
+]
 research = [
     "optuna==4.6.0",
     "shap==0.48.0",
@@ -115,6 +119,7 @@ module = [
     "torch.*",
     "matplotlib.*",
     "shapely.*",
+    "shapefile.*",
 ]
 ignore_missing_imports = true
 

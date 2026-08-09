@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from pathlib import Path
 from typing import Final, cast
 
@@ -18,6 +19,7 @@ __all__ = [
     "join_weather",
     "nearest_station",
     "parse_isd",
+    "station_by_zone",
 ]
 
 log = get_logger(__name__)
@@ -28,7 +30,17 @@ STATIONS: Final[dict[str, str]] = {
     "central_park": "72505394728",
     "lga": "72503014732",
     "jfk": "74486094789",
+    "ewr": "72502014734",
 }
+
+STATION_COORDS: Final[dict[str, tuple[float, float]]] = {
+    "central_park": (40.7794, -73.9692),
+    "lga": (40.7794, -73.8803),
+    "jfk": (40.6386, -73.7622),
+    "ewr": (40.6825, -74.1694),
+}
+
+EARTH_RADIUS_KM: Final = 6371.0088
 
 _MISSING_TMP: Final = 9999
 _MISSING_WND_SPEED: Final = 9999
@@ -150,13 +162,38 @@ def nearest_station(zone_col: str = "pu_zone") -> pl.Expr:
     )
 
 
-def join_weather(lf: pl.LazyFrame, weather: pl.DataFrame) -> pl.LazyFrame:
+def join_weather(
+    lf: pl.LazyFrame, weather: pl.DataFrame, stations: pl.DataFrame | None = None
+) -> pl.LazyFrame:
     keyed = lf.with_columns(
         pl.col("request_datetime").dt.truncate("1h").dt.cast_time_unit("us").alias("hour"),
-        nearest_station(),
     )
+    if stations is None:
+        keyed = keyed.with_columns(nearest_station())
+    else:
+        keyed = keyed.join(stations.select("pu_zone", "station").lazy(), on="pu_zone", how="left")
     slim = weather.select("hour", "station", *WEATHER_COLUMNS).with_columns(
         pl.col("hour").dt.cast_time_unit("us"),
         *[pl.col(c).cast(pl.Float32) for c in WEATHER_COLUMNS],
     )
     return keyed.join(slim.lazy(), on=["hour", "station"], how="left").drop("hour", "station")
+
+
+def station_by_zone(zones: pl.DataFrame) -> pl.DataFrame:
+    lat = pl.col("centroid_lat").radians()
+    lon = pl.col("centroid_lon").radians()
+    exprs = []
+    for name, (slat, slon) in STATION_COORDS.items():
+        dlat = lat - math.radians(slat)
+        dlon = lon - math.radians(slon)
+        a = (dlat / 2).sin() ** 2 + lat.cos() * math.cos(math.radians(slat)) * (dlon / 2).sin() ** 2
+        exprs.append((2 * a.sqrt().arcsin() * EARTH_RADIUS_KM).alias(f"d_{name}"))
+
+    names = list(STATION_COORDS)
+    scored = zones.select("zone_id", *exprs)
+    nearest = pl.concat_list([pl.col(f"d_{n}") for n in names]).list.arg_min()
+    return scored.select(
+        pl.col("zone_id").cast(pl.UInt16).alias("pu_zone"),
+        nearest.replace_strict(dict(enumerate(names)), return_dtype=pl.String).alias("station"),
+        pl.min_horizontal([pl.col(f"d_{n}") for n in names]).cast(pl.Float32).alias("station_km"),
+    )

@@ -9,18 +9,18 @@ PROD    := docker/compose.prod.yml
 OSRM    := docker/compose.osrm.yml
 
 .PHONY: help setup lock lint format typecheck test test-cov ci \
-        data data-download data-trips data-weather data-enrich data-card route route-fetch train calib bench deploy \
+        data data-download data-trips data-weather data-enrich data-card route route-fetch route-zones route-matrix route-embeddings route-detour train calib bench deploy \
         osrm-up osrm-down up down logs clean
 
 help:
 	@echo 'quality : lint typecheck test ci'
 	@echo 'data    : data data-download data-trips data-weather data-enrich data-card'
-	@echo 'pipeline: route route-fetch train calib bench deploy'
+	@echo 'pipeline: route route-fetch route-zones route-matrix route-embeddings route-detour train calib bench deploy'
 	@echo 'env     : setup lock format clean'
 	@echo 'docker  : up down logs osrm-up osrm-down'
 
 setup:
-	$(UV) sync --extra dev
+	$(UV) sync --extra dev --extra geo
 	$(UV) run pre-commit install
 
 lock:
@@ -78,6 +78,21 @@ route-fetch:
 		https://download.geofabrik.de/north-america/us/new-york-latest.osm.pbf
 
 route:
+	$(UV) run python -m eta.routing all
+
+route-zones:
+	$(UV) run python -m eta.routing zones
+
+route-matrix:
+	$(UV) run python -m eta.routing matrix
+
+route-embeddings:
+	$(UV) run python -m eta.routing embeddings
+
+route-detour:
+	$(UV) run python -m eta.routing detour
+
+route-unused:
 	$(call not_yet,route,3,Run `make route-fetch` then `make osrm-up`; this target precomputes the 265x265 zone-pair matrix)
 
 train:

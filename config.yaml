@@ -38,9 +38,9 @@ calibration:
   mondrian: true
 
 routing:
-  osrm_url: http://localhost:5000
+  osrm_url: http://127.0.0.1:5000
   osrm_timeout_s: 10.0
-  n_zones: 265
+  n_zones: 263
   zone_matrix_path: data/processed/zone_pair_matrix.parquet
   zone_embedding_dims: 16
 

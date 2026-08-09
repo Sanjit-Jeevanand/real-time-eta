@@ -143,9 +143,9 @@ class CalibrationConfig(BaseModel):
 class RoutingConfig(BaseModel):
     model_config = {"frozen": True}
 
-    osrm_url: str = "http://localhost:5000"
+    osrm_url: str = "http://127.0.0.1:5000"
     osrm_timeout_s: float = Field(default=10.0, gt=0)
-    n_zones: int = Field(default=265, ge=1)
+    n_zones: int = Field(default=263, ge=1)
     zone_matrix_path: Path = Path("data/processed/zone_pair_matrix.parquet")
     zone_embedding_dims: int = Field(default=16, ge=1)
 

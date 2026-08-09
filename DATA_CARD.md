@@ -112,9 +112,9 @@ variable until Phase 3 supplies OSRM route distance as a request-time proxy.
 
 | bucket | rows | share | p50 (min) | p90 (min) |
 |---|---:|---:|---:|---:|
-| clear | 250,748,918 | 90.1% | 20.2 | 40.7 |
-| rain | 27,147,120 | 9.8% | 20.5 | 41.8 |
-| snow | 281,918 | 0.1% | 21.2 | 43.5 |
+| clear | 250,250,413 | 90.0% | 20.2 | 40.7 |
+| rain | 27,581,439 | 9.9% | 20.4 | 41.7 |
+| snow | 346,104 | 0.1% | 20.6 | 42.1 |
 
 ## Mondrian grid viability
 
@@ -151,11 +151,11 @@ Thinnest cells:
 | `dispatch_approach_s` | 27.50 | absent when `on_scene_datetime` is not reported |
 | `curb_wait_s` | 27.50 | absent when `on_scene_datetime` is not reported |
 | `trip_duration_s` | 0.00 | derived from pickup/dropoff only, so always present |
-| `temp_c` | 0.00 | NOAA gap beyond the 2h forward-fill |
-| `wind_ms` | 0.23 | NOAA gap beyond the 2h forward-fill |
-| `visibility_m` | 0.06 | NOAA gap beyond the 2h forward-fill |
+| `temp_c` | 0.01 | NOAA gap beyond the 2h forward-fill |
+| `wind_ms` | 0.14 | NOAA gap beyond the 2h forward-fill |
+| `visibility_m` | 0.04 | NOAA gap beyond the 2h forward-fill |
 | `precip_mm_h` | 0.00 | NOAA gap beyond the 2h forward-fill |
-| `snow_depth_cm` | 0.01 | NOAA gap beyond the 2h forward-fill |
+| `snow_depth_cm` | 0.13 | NOAA gap beyond the 2h forward-fill |
 
 `on_scene_datetime` is reported by Uber and effectively absent for Lyft, so the component decomposition covers only part of the data. The target itself is complete. Components are left null rather than zero-filled: a zero would read as an instant pickup and bias the decomposition toward the operator that reports the field.
 
@@ -170,6 +170,28 @@ Post-hoc, never a feature (9 columns):
 `curb_wait_s`, `dispatch_approach_s`, `dropoff_datetime`, `on_scene_datetime`, `pickup_datetime`, `total_time_s`, `trip_duration_s`, `trip_miles`, `trip_time`
 
 Enforced by `tests/test_leakage.py`, which runs in CI.
+
+## Coverage population
+
+Every coverage claim in this project -- including the conformal guarantee -- is
+measured over one specific population:
+
+> trips whose pickup **and** dropoff zones both have geometry, i.e. neither is
+> zone 264 (Unknown) nor 265 (N/A).
+
+That excludes 4.06% of raw trips (11,889,275 rows). They are not corrupt; the feed simply never resolved their endpoint, and a zone with no centroid cannot be routed. A stated "90% coverage" therefore means 90% of the routable population, not 90% of all hailed trips. Stating the denominator is the difference between a guarantee and a number.
+
+## Same-zone distances
+
+Same-zone trips have no centroid-to-centroid route, so the 263 diagonal entries are estimated rather than routed.
+
+Estimates come from the **observed median distance of same-zone trips in the training
+split**, for zones that have enough of them. Zones below that floor fall back to an
+area-based relationship fitted on the zones that do.
+
+The fallback relationship achieves **LOO-CV R2 = 0.540** (in-sample 0.555) *across the 245 zones with sufficient same-zone observations*. It was **not** cross-validated on the 18 zones it is actually applied to. Those 18 are structurally different from the fit population -- median area 0.72 km2 against 2.23, and they are parks, cemeteries, Rikers, Freshkills and Governors Island -- so for them the fallback is an **extrapolation**, not a validated prediction. They carry very few same-zone trips, which limits the exposure without removing it.
+
+For scale: the geometric estimate this replaced was 52% of actual at the median (R2 -1.78), measured against 11.4M real same-zone training trips.
 
 ## Known limitations
 

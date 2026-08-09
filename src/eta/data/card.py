@@ -262,6 +262,55 @@ def write_data_card(settings: Settings) -> Path:
     a("Enforced by `tests/test_leakage.py`, which runs in CI.")
     a("")
 
+    a("## Coverage population")
+    a("")
+    unroutable = next(r for r in filters["rules"] if r["name"] == "zones_routable")
+    a("Every coverage claim in this project -- including the conformal guarantee -- is")
+    a("measured over one specific population:")
+    a("")
+    a("> trips whose pickup **and** dropoff zones both have geometry, i.e. neither is")
+    a("> zone 264 (Unknown) nor 265 (N/A).")
+    a("")
+    a(
+        f"That excludes {unroutable['pct_alone']:.2f}% of raw trips "
+        f"({_fmt(unroutable['rejected_alone'])} rows). They are not corrupt; the feed simply "
+        "never resolved their endpoint, and a zone with no centroid cannot be routed. A stated "
+        '"90% coverage" therefore means 90% of the routable population, not 90% of all '
+        "hailed trips. Stating the denominator is the difference between a guarantee and a "
+        "number."
+    )
+    a("")
+
+    a("## Same-zone distances")
+    a("")
+    matrix_path = paths["processed_dir"] / "zone_pair_matrix.parquet"
+    if matrix_path.exists():
+        diag = pl.read_parquet(matrix_path).filter(pl.col("is_intra_zone"))
+        a(
+            f"Same-zone trips have no centroid-to-centroid route, so the {diag.height} diagonal "
+            "entries are estimated rather than routed."
+        )
+    a("")
+    a("Estimates come from the **observed median distance of same-zone trips in the training")
+    a("split**, for zones that have enough of them. Zones below that floor fall back to an")
+    a("area-based relationship fitted on the zones that do.")
+    a("")
+    a(
+        "The fallback relationship achieves **LOO-CV R2 = 0.540** (in-sample 0.555) *across the "
+        "245 zones with sufficient same-zone observations*. It was **not** cross-validated on the "
+        "18 zones it is actually applied to. Those 18 are structurally different from the fit "
+        "population -- median area 0.72 km2 against 2.23, and they are parks, cemeteries, Rikers, "
+        "Freshkills and Governors Island -- so for them the fallback is an **extrapolation**, not "
+        "a validated prediction. They carry very few same-zone trips, which limits the exposure "
+        "without removing it."
+    )
+    a("")
+    a(
+        "For scale: the geometric estimate this replaced was 52% of actual at the median "
+        "(R2 -1.78), measured against 11.4M real same-zone training trips."
+    )
+    a("")
+
     a("## Known limitations")
     a("")
     a(

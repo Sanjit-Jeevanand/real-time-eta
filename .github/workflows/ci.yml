@@ -28,7 +28,7 @@ jobs:
           cache-dependency-glob: uv.lock
 
       - name: Install dependencies
-        run: uv sync --locked --extra dev
+        run: uv sync --locked --extra dev --extra geo
 
       - name: Lint
         run: make lint
@@ -50,7 +50,7 @@ jobs:
           cache-dependency-glob: uv.lock
 
       - name: Install dependencies
-        run: uv sync --locked --extra dev
+        run: uv sync --locked --extra dev --extra geo
 
       - name: Test
         run: make test-cov

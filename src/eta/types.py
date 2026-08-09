@@ -18,6 +18,7 @@ __all__ = [
     "ZoneDensityBucket",
     "polars_enum",
     "segment_key",
+    "series_float",
 ]
 
 type Quantile = float
@@ -69,3 +70,12 @@ def segment_key(buckets: Sequence[StrEnum]) -> str:
 
 def polars_enum(cls: type[StrEnum]) -> pl.Enum:
     return pl.Enum([member.value for member in cls])
+
+
+def series_float(series: pl.Series) -> float:
+    value = series.item() if series.len() == 1 else None
+    return float(value) if value is not None else float("nan")
+
+
+def stat_float(value: object) -> float:
+    return float(value) if isinstance(value, int | float) else float("nan")

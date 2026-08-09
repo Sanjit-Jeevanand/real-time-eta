@@ -9,10 +9,11 @@ import pytest
 
 from eta.data.schema import NYC_TZ
 from eta.data.weather import (
+    STATION_COORDS,
     STATIONS,
     join_weather,
-    nearest_station,
     parse_isd,
+    station_by_zone,
 )
 
 CSV_HEADER = "STATION,DATE,TMP,WND,VIS,AA1,AJ1\n"
@@ -100,14 +101,40 @@ def test_timestamps_convert_from_utc_to_new_york(tmp_path: Path) -> None:
     assert hour.utcoffset() == dt.timedelta(hours=-5)
 
 
-def test_airport_zones_use_their_own_station() -> None:
-    zones = pl.DataFrame({"pu_zone": [132, 138, 1, 161]})
-    out = zones.with_columns(nearest_station())
-    assert out["station"].to_list() == ["jfk", "lga", "lga", "central_park"]
-
-
 def test_station_ids_are_distinct() -> None:
-    assert len(set(STATIONS.values())) == len(STATIONS) == 3
+    assert len(set(STATIONS.values())) == len(STATIONS)
+    assert set(STATIONS) == set(STATION_COORDS)
+
+
+def test_every_station_has_plausible_nyc_coordinates() -> None:
+    for name, (lat, lon) in STATION_COORDS.items():
+        assert 40.4 < lat < 41.0, name
+        assert -74.4 < lon < -73.5, name
+
+
+def test_nearest_station_picks_the_closest_by_distance() -> None:
+    zones = pl.DataFrame(
+        {
+            "zone_id": pl.Series([132, 138, 1, 161], dtype=pl.UInt16),
+            "centroid_lat": [40.6470, 40.7744, 40.6918, 40.7580],
+            "centroid_lon": [-73.7865, -73.8736, -74.1740, -73.9855],
+        }
+    )
+    out = station_by_zone(zones)
+    assert out["station"].to_list() == ["jfk", "lga", "ewr", "central_park"]
+
+
+def test_newark_zone_is_no_longer_stranded_on_central_park() -> None:
+    zones = pl.DataFrame(
+        {
+            "zone_id": pl.Series([1], dtype=pl.UInt16),
+            "centroid_lat": [40.6918],
+            "centroid_lon": [-74.1740],
+        }
+    )
+    out = station_by_zone(zones)
+    assert out["station"][0] == "ewr"
+    assert out["station_km"][0] < 2.0
 
 
 def test_join_matches_across_time_units(tmp_path: Path) -> None:
