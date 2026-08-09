@@ -1,0 +1,137 @@
+[project]
+name = "eta-system"
+version = "0.1.0"
+description = "Real-time delivery ETA prediction: quantile models, conformal calibration, sub-25ms serving"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Sanjit Jeevanand" }]
+
+dependencies = [
+    "polars==1.35.2",
+    "pyarrow==22.0.0",
+    "numpy==2.3.4",
+    "pandas==2.3.3",
+    "lightgbm==4.6.0",
+    "scikit-learn==1.7.2",
+    "treelite==4.4.1",
+    "tl2cgen==1.0.0",
+    "fastapi==0.121.2",
+    "uvicorn[standard]==0.38.0",
+    "redis[hiredis]==6.4.0",
+    "pydantic==2.12.4",
+    "pydantic-settings==2.12.0",
+    "pyyaml==6.0.3",
+    "structlog==25.5.0",
+    "prometheus-client==0.24.0",
+    "shapely==2.1.2",
+    "httpx==0.28.1",
+]
+
+[project.optional-dependencies]
+nn = ["torch==2.9.1"]
+research = [
+    "optuna==4.6.0",
+    "shap==0.48.0",
+    "matplotlib==3.10.7",
+]
+dev = [
+    "pytest==8.4.2",
+    "pytest-cov==7.0.0",
+    "pytest-asyncio==1.3.0",
+    "ruff==0.14.5",
+    "mypy==1.18.2",
+    "pre-commit==4.4.0",
+    "types-pyyaml==6.0.12.20250915",
+    "pandas-stubs==2.3.2.250926",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/eta"]
+
+[tool.uv]
+environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",
+    "F",
+    "I",
+    "N",
+    "UP",
+    "B",
+    "A",
+    "C4",
+    "DTZ",
+    "T20",
+    "SIM",
+    "PTH",
+    "RUF",
+]
+ignore = [
+    "E501",
+    "N803",
+    "N806",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "DTZ001"]
+"bench/*" = ["T20"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["eta"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+disallow_any_generics = true
+show_error_codes = true
+plugins = ["pydantic.mypy"]
+files = ["src", "tests"]
+disable_error_code = ["prop-decorator"]
+
+[[tool.mypy.overrides]]
+module = ["tests.test_config"]
+disable_error_code = ["misc"]
+
+[[tool.mypy.overrides]]
+module = [
+    "lightgbm.*",
+    "treelite.*",
+    "tl2cgen.*",
+    "shap.*",
+    "optuna.*",
+    "sklearn.*",
+    "torch.*",
+    "matplotlib.*",
+    "shapely.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "leakage: temporal-split and no-future-information assertions",
+    "parity: offline vs online feature parity",
+    "calibration: coverage and interval-width assertions",
+    "slow: excluded from the default CI unit job",
+]
+
+[tool.coverage.run]
+source = ["src/eta"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]

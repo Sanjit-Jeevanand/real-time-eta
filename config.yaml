@@ -1,0 +1,66 @@
+env: dev
+log_level: INFO
+
+cost:
+  lambda_late: 3.0
+  lambda_early: 1.0
+
+splits:
+  train_start: 2023-01-01
+  train_end: 2023-10-01
+  cal_end: 2023-11-15
+  val_end: 2023-12-15
+  test_end: 2024-01-15
+  holdout_weeks: 8
+
+segments:
+  peak_am_hours: [6, 10]
+  peak_pm_hours: [16, 20]
+  late_night_hours: [23, 5]
+  short_trip_max_miles: 2.0
+  long_trip_min_miles: 8.0
+  rain_mm_threshold: 0.2
+  snow_mm_threshold: 0.5
+  airport_zone_ids: [1, 132, 138]
+  manhattan_core_borough: Manhattan
+
+model:
+  quantiles: [0.05, 0.5, 0.75, 0.9, 0.95]
+  reported_quantiles: [0.5, 0.75, 0.9]
+  seeds: [0, 1, 2]
+  optuna_trials: 100
+  early_stopping_rounds: 100
+
+calibration:
+  target_coverage: 0.90
+  min_segment_samples: 5000
+  max_segment_coverage_gap_pp: 5.0
+  mondrian: true
+
+routing:
+  osrm_url: http://localhost:5000
+  osrm_timeout_s: 10.0
+  n_zones: 265
+  zone_matrix_path: data/processed/zone_pair_matrix.parquet
+  zone_embedding_dims: 16
+
+redis:
+  host: localhost
+  port: 6379
+  db: 0
+  socket_timeout_s: 0.05
+  congestion_windows_min: [15, 30, 60]
+
+serving:
+  host: 0.0.0.0
+  port: 8000
+  workers: 2
+  p99_target_ms: 25.0
+  degrade_on_redis_failure: true
+
+paths:
+  raw_dir: data/raw
+  interim_dir: data/interim
+  processed_dir: data/processed
+  artifacts_dir: artifacts
+  reports_dir: reports

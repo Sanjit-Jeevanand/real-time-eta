@@ -1,0 +1,78 @@
+name: eta
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    image: ghcr.io/sanjit-jeevanand/eta-api:${ETA_SHA:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      ETA_ENV: prod
+      ETA_LOG_LEVEL: INFO
+      ETA_REDIS__HOST: redis
+    volumes:
+      - ../artifacts:/app/artifacts:ro
+      - ../data/processed:/app/data/processed:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 900M
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+      --save ""
+      --appendonly no
+      --maxmemory 96mb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  k6:
+    image: grafana/k6:0.55.0
+    profiles: ["bench"]
+    volumes:
+      - ../bench:/bench:ro
+    environment:
+      K6_TARGET: http://api:8000
+    command: run /bench/eta_load.js
+    depends_on:
+      api:
+        condition: service_started
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    profiles: ["monitoring"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.5.0
+    profiles: ["monitoring"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
