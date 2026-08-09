@@ -195,3 +195,28 @@ def test_corrupt_parquet_fails_with_a_named_error(tmp_path: object) -> None:
 
     with pytest.raises(RuntimeError, match=r"fhvhv_tripdata_2023-09\.parquet is corrupt"):
         verify_readable(p)
+
+
+def test_null_predicate_row_is_dropped_not_kept() -> None:
+    lf = pl.LazyFrame(
+        [("HV0003", _t(1, 8), _t(1, 8, 8), _t(1, 8, 10), _t(1, 8, 30), 100, 200, None, 1200)],
+        schema={
+            "hvfhs_license_num": pl.String,
+            "request_datetime": pl.Datetime("us", NYC_TZ),
+            "on_scene_datetime": pl.Datetime("us", NYC_TZ),
+            "pickup_datetime": pl.Datetime("us", NYC_TZ),
+            "dropoff_datetime": pl.Datetime("us", NYC_TZ),
+            "PULocationID": pl.Int64,
+            "DOLocationID": pl.Int64,
+            "trip_miles": pl.Float64,
+            "trip_time": pl.Int64,
+        },
+        orient="row",
+    )
+    assert apply_filters(lf).collect().height == 0
+
+    _, audits = audit_filters(lf)
+    by_name = {a.name: a.rejected_alone for a in audits}
+    assert by_name["distance_consistent"] == 1
+    assert by_name["speed_plausible"] == 1
+    assert by_name["timestamps_present"] == 0

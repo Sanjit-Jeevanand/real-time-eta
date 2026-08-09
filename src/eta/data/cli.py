@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import sys
 
 from eta.config import get_settings
+from eta.data.card import write_data_card
+from eta.data.enrich import enrich_all
 from eta.data.ingest import (
     download_months,
     download_zone_lookup,
@@ -21,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="eta.data", description="TLC + weather ingest")
     parser.add_argument(
         "stage",
-        choices=("download", "trips", "weather", "all"),
+        choices=("download", "trips", "weather", "enrich", "card", "all"),
         nargs="?",
         default="all",
     )
@@ -36,8 +39,15 @@ def main(argv: list[str] | None = None) -> int:
     raw_weather = paths["raw_dir"] / "weather"
     processed = paths["processed_dir"]
 
-    months = month_range(settings.splits.train_start, settings.splits.test_end)
-    log.info("ingest_plan", months=len(months), first=months[0], last=months[-1])
+    holdout_end = settings.splits.test_end + dt.timedelta(weeks=settings.splits.holdout_weeks)
+    months = month_range(settings.splits.train_start, holdout_end)
+    log.info(
+        "ingest_plan",
+        months=len(months),
+        first=months[0],
+        last=months[-1],
+        holdout_end=holdout_end.isoformat(),
+    )
 
     if args.stage in ("download", "all"):
         download_months(months, raw_tlc)
@@ -65,6 +75,12 @@ def main(argv: list[str] | None = None) -> int:
         out.parent.mkdir(parents=True, exist_ok=True)
         weather.write_parquet(out, compression="zstd")
         log.info("weather_written", path=str(out), rows=weather.height)
+
+    if args.stage in ("enrich", "all"):
+        enrich_all(settings)
+
+    if args.stage in ("card", "all"):
+        write_data_card(settings)
 
     return 0
 

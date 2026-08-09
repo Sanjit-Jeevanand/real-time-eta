@@ -3,6 +3,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+import polars as pl
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -14,6 +16,7 @@ __all__ = [
     "TripLengthBucket",
     "WeatherBucket",
     "ZoneDensityBucket",
+    "polars_enum",
     "segment_key",
 ]
 
@@ -62,3 +65,7 @@ SEGMENT_AXES: dict[SegmentAxis, type[StrEnum]] = {
 
 def segment_key(buckets: Sequence[StrEnum]) -> str:
     return "|".join(sorted(str(b) for b in buckets))
+
+
+def polars_enum(cls: type[StrEnum]) -> pl.Enum:
+    return pl.Enum([member.value for member in cls])

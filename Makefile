@@ -9,12 +9,12 @@ PROD    := docker/compose.prod.yml
 OSRM    := docker/compose.osrm.yml
 
 .PHONY: help setup lock lint format typecheck test test-cov ci \
-        data data-download data-trips data-weather route route-fetch train calib bench deploy \
+        data data-download data-trips data-weather data-enrich data-card route route-fetch train calib bench deploy \
         osrm-up osrm-down up down logs clean
 
 help:
 	@echo 'quality : lint typecheck test ci'
-	@echo 'data    : data data-download data-trips data-weather'
+	@echo 'data    : data data-download data-trips data-weather data-enrich data-card'
 	@echo 'pipeline: route route-fetch train calib bench deploy'
 	@echo 'env     : setup lock format clean'
 	@echo 'docker  : up down logs osrm-up osrm-down'
@@ -65,6 +65,12 @@ data-trips:
 
 data-weather:
 	$(UV) run python -m eta.data weather
+
+data-enrich:
+	$(UV) run python -m eta.data enrich
+
+data-card:
+	$(UV) run python -m eta.data card
 
 route-fetch:
 	mkdir -p data/osrm

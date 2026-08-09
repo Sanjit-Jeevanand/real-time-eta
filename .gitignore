@@ -19,6 +19,8 @@ htmlcov/
 coverage.xml
 .hypothesis/
 
+/data
+data.nosync/
 data/raw/
 data/interim/
 data/processed/

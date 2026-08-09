@@ -12,8 +12,10 @@ from eta.logging import get_logger
 
 __all__ = [
     "STATIONS",
+    "WEATHER_COLUMNS",
     "build_hourly_weather",
     "download_station_year",
+    "join_weather",
     "nearest_station",
     "parse_isd",
 ]
@@ -32,6 +34,8 @@ _MISSING_TMP: Final = 9999
 _MISSING_WND_SPEED: Final = 9999
 _MISSING_VIS: Final = 999999
 _MISSING_PRECIP: Final = 9999
+
+WEATHER_COLUMNS: Final = ("temp_c", "wind_ms", "visibility_m", "precip_mm_h", "snow_depth_cm")
 
 
 def download_station_year(station: str, year: int, dest: Path) -> Path:
@@ -144,3 +148,15 @@ def nearest_station(zone_col: str = "pu_zone") -> pl.Expr:
         .otherwise(pl.lit("central_park"))
         .alias("station")
     )
+
+
+def join_weather(lf: pl.LazyFrame, weather: pl.DataFrame) -> pl.LazyFrame:
+    keyed = lf.with_columns(
+        pl.col("request_datetime").dt.truncate("1h").dt.cast_time_unit("us").alias("hour"),
+        nearest_station(),
+    )
+    slim = weather.select("hour", "station", *WEATHER_COLUMNS).with_columns(
+        pl.col("hour").dt.cast_time_unit("us"),
+        *[pl.col(c).cast(pl.Float32) for c in WEATHER_COLUMNS],
+    )
+    return keyed.join(slim.lazy(), on=["hour", "station"], how="left").drop("hour", "station")

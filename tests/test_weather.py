@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import datetime as dt
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import polars as pl
 import pytest
 
-from eta.data.weather import STATIONS, nearest_station, parse_isd
+from eta.data.schema import NYC_TZ
+from eta.data.weather import (
+    STATIONS,
+    join_weather,
+    nearest_station,
+    parse_isd,
+)
 
 CSV_HEADER = "STATION,DATE,TMP,WND,VIS,AA1,AJ1\n"
 
@@ -101,3 +108,54 @@ def test_airport_zones_use_their_own_station() -> None:
 
 def test_station_ids_are_distinct() -> None:
     assert len(set(STATIONS.values())) == len(STATIONS) == 3
+
+
+def test_join_matches_across_time_units(tmp_path: Path) -> None:
+    hour = dt.datetime(2023, 6, 1, 18, tzinfo=ZoneInfo(NYC_TZ))
+    weather = pl.DataFrame(
+        {
+            "hour": pl.Series([hour], dtype=pl.Datetime("us", NYC_TZ)),
+            "station": ["central_park"],
+            "temp_c": [21.0],
+            "wind_ms": [3.0],
+            "visibility_m": [16000],
+            "precip_mm_h": [0.0],
+            "snow_depth_cm": [0],
+        }
+    )
+    trips = pl.LazyFrame(
+        {
+            "request_datetime": pl.Series(
+                [hour + dt.timedelta(minutes=42)], dtype=pl.Datetime("ns", NYC_TZ)
+            ),
+            "pu_zone": pl.Series([161], dtype=pl.UInt16),
+        }
+    )
+    out = join_weather(trips, weather).collect()
+    assert out["temp_c"][0] == pytest.approx(21.0)
+    assert "hour" not in out.columns
+    assert "station" not in out.columns
+
+
+def test_negative_temp_sentinel_is_also_missing(tmp_path: Path) -> None:
+    csv = _write(
+        tmp_path,
+        ['725053,2023-01-01T00:06:00,"-9999,9","030,5,N,0015,5","002414,5,N,5",,'],
+    )
+    assert parse_isd(csv, "central_park").collect().row(0, named=True)["temp_c"] is None
+
+
+def test_zero_hour_precip_period_does_not_divide_by_zero(tmp_path: Path) -> None:
+    csv = _write(
+        tmp_path,
+        ['725053,2023-01-01T00:06:00,"+0100,5","030,5,N,0015,5","002414,5,N,5","00,0010,3,1",'],
+    )
+    assert parse_isd(csv, "central_park").collect().row(0, named=True)["precip_mm_h"] is None
+
+
+def test_implausible_precip_period_is_rejected(tmp_path: Path) -> None:
+    csv = _write(
+        tmp_path,
+        ['725053,2023-01-01T00:06:00,"+0100,5","030,5,N,0015,5","002414,5,N,5","99,0010,3,1",'],
+    )
+    assert parse_isd(csv, "central_park").collect().row(0, named=True)["precip_mm_h"] is None
