@@ -13,7 +13,7 @@ OSRM    := docker/compose.osrm.yml
         osrm-up osrm-down up down logs clean
 
 help:
-	@echo 'quality : lint typecheck test ci'
+	@echo 'quality : lint typecheck leakage parity test ci'
 	@echo 'data    : data data-download data-trips data-weather data-enrich data-card'
 	@echo 'pipeline: route route-fetch route-zones route-matrix route-embeddings route-detour train calib bench deploy'
 	@echo 'env     : setup lock format clean'
@@ -41,10 +41,19 @@ typecheck:
 test:
 	$(UV) run pytest
 
+leakage:
+	$(UV) run pytest -m leakage
+
+parity:
+	$(UV) run pytest -m parity
+
+replay:
+	$(UV) run python -m eta.features.replay_cli --month 2023-06
+
 test-cov:
 	$(UV) run pytest --cov --cov-report=term-missing --cov-report=xml
 
-ci: lint typecheck test
+ci: lint typecheck leakage parity test
 
 define not_yet
 	@echo ""

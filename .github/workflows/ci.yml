@@ -36,6 +36,38 @@ jobs:
       - name: Type check
         run: make typecheck
 
+  leakage:
+    name: leakage assertions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install dependencies
+        run: uv sync --locked --extra dev --extra geo
+      - name: Leakage
+        run: make leakage
+
+  parity:
+    name: feature parity (BLOCKING)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install dependencies
+        run: uv sync --locked --extra dev --extra geo
+      - name: Parity
+        run: make parity
+
   unit:
     name: unit tests
     runs-on: ubuntu-latest
