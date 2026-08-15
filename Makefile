@@ -9,18 +9,18 @@ PROD    := docker/compose.prod.yml
 OSRM    := docker/compose.osrm.yml
 
 .PHONY: help setup lock lint format typecheck test test-cov ci \
-        data data-download data-trips data-weather data-enrich data-card route route-fetch route-zones route-matrix route-embeddings route-detour train calib bench deploy \
+        data data-download data-trips data-weather data-enrich data-card model-matrix baselines quantile calibrate ablation explain latency latency-full compile serve route route-fetch route-zones route-matrix route-embeddings route-detour route-history train calib bench deploy \
         osrm-up osrm-down up down logs clean
 
 help:
 	@echo 'quality : lint typecheck leakage parity test ci'
 	@echo 'data    : data data-download data-trips data-weather data-enrich data-card'
-	@echo 'pipeline: route route-fetch route-zones route-matrix route-embeddings route-detour train calib bench deploy'
+	@echo 'pipeline: model-matrix baselines quantile calibrate ablation explain latency latency-full compile serve route route-fetch route-zones route-matrix route-embeddings route-detour route-history train calib bench deploy'
 	@echo 'env     : setup lock format clean'
 	@echo 'docker  : up down logs osrm-up osrm-down'
 
 setup:
-	$(UV) sync --extra dev --extra geo
+	$(UV) sync --extra dev --extra geo --extra research --extra nn
 	$(UV) run pre-commit install
 
 lock:
@@ -101,14 +101,47 @@ route-embeddings:
 route-detour:
 	$(UV) run python -m eta.routing detour
 
+route-history:
+	$(UV) run python -m eta.routing history
+
 route-unused:
 	$(call not_yet,route,3,Run `make route-fetch` then `make osrm-up`; this target precomputes the 265x265 zone-pair matrix)
+
+model-matrix:
+	$(UV) run python -m eta.models matrix --tier tune
+
+baselines:
+	$(UV) run python -m eta.models all --tier tune
+
+quantile:
+	$(UV) run python -m eta.models quantile --tier tune --trials 20
+
+calibrate:
+	$(UV) run python -m eta.models calibrate --tier tune
+
+ablation:
+	$(UV) run python -m eta.models ablation --tier tune
+
+explain:
+	$(UV) run python -m eta.models explain --tier tune
 
 train:
 	$(call not_yet,train,6,LightGBM quantile models at the 5 configured levels x 3 seeds)
 
 calib:
 	$(call not_yet,calib,7,Per-segment isotonic + CQR on the dedicated calibration split)
+
+serve:
+	$(UV) run uvicorn eta.serving.wsgi:app --host 0.0.0.0 --port 8000
+
+latency:
+	$(UV) run python -m eta.serving bench --requests 2000
+
+latency-full:
+	$(UV) run python -m eta.serving bench --requests 2000 --redis --treelite
+
+compile:
+	$(UV) run python -m eta.serving compile
 
 bench:
 	$(call not_yet,bench,9,k6 ramp against eta-bench from a separate load box)
