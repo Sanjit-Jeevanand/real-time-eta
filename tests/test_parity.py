@@ -81,7 +81,7 @@ def _static() -> StaticTables:
         {
             "zone_id": pl.Series(ids, dtype=pl.UInt16),
             "hist_mean_duration_s": pl.Series([900.0 + 20.0 * i for i in ids], dtype=pl.Float32),
-            "free_flow_speed_ms": pl.Series([6.0 + 0.2 * i for i in ids], dtype=pl.Float32),
+            "reference_speed_ms": pl.Series([6.0 + 0.2 * i for i in ids], dtype=pl.Float32),
             "hist_trips": pl.Series([1000 + i for i in ids], dtype=pl.UInt32),
         }
     )
@@ -238,3 +238,89 @@ def test_replay_never_sees_a_trip_before_it_completes() -> None:
     assert stream.snapshot(9)["cong:completed:9:60m"] == 0.0
     stream.advance(START + dt.timedelta(minutes=30), {9: (1.0, 5000.0, 1800.0)})
     assert stream.snapshot(9)["cong:completed:9:60m"] == 1.0
+
+
+def test_matrix_generation_is_point_in_time_end_to_end(tmp_path: object) -> None:
+    import pathlib
+
+    from eta.features.pipeline import assemble
+
+    d = pathlib.Path(str(tmp_path))
+    zone = 5
+    request_at = START + dt.timedelta(hours=9)
+
+    rows = [
+        (
+            zone,
+            request_at - dt.timedelta(hours=2),
+            request_at - dt.timedelta(minutes=30),
+            4.0,
+            1800,
+            6,
+            20.0,
+            3.0,
+            10000.0,
+            0.0,
+            0.0,
+            0,
+        ),
+        (
+            zone,
+            request_at - dt.timedelta(minutes=10),
+            request_at + dt.timedelta(hours=1),
+            40.0,
+            4200,
+            6,
+            20.0,
+            3.0,
+            10000.0,
+            0.0,
+            0.0,
+            1,
+        ),
+        (
+            zone,
+            request_at,
+            request_at + dt.timedelta(minutes=20),
+            3.0,
+            1200,
+            6,
+            20.0,
+            3.0,
+            10000.0,
+            0.0,
+            0.0,
+            2,
+        ),
+    ]
+    trips = pl.DataFrame(
+        rows,
+        schema={
+            "pu_zone": pl.UInt16,
+            "request_datetime": pl.Datetime("us", NYC_TZ),
+            "dropoff_datetime": pl.Datetime("us", NYC_TZ),
+            "trip_miles": pl.Float64,
+            "trip_duration_s": pl.Int64,
+            "do_zone": pl.UInt16,
+            "temp_c": pl.Float32,
+            "wind_ms": pl.Float32,
+            "visibility_m": pl.Float32,
+            "precip_mm_h": pl.Float32,
+            "snow_depth_cm": pl.Float32,
+            "row_id": pl.Int64,
+        },
+        orient="row",
+    )
+    trips.write_parquet(d / "enriched_synth.parquet")
+
+    state = build_zone_state(d / "enriched_*.parquet")
+    assembled = assemble(trips.lazy(), _static(), state).collect()
+    target = assembled.filter(pl.col("row_id") == 2).row(0, named=True)
+
+    assert target["completed_60m"] == 1, (
+        "only the trip that completed 30 minutes before the request may be visible; "
+        "the straddling trip and the request's own trip must not be"
+    )
+    assert target["distance_m_60m"] == pytest.approx(4.0 * 1609.344, rel=1e-6), (
+        "the 40-mile straddling trip must contribute nothing to the state"
+    )

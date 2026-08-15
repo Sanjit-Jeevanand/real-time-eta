@@ -367,3 +367,75 @@ def test_routing_manifest_pins_the_inputs() -> None:
         "structural_detour_ratio",
         "zone_embeddings",
     }
+
+
+# ------------------------------------------------- embedding provenance -----
+def _pair_trips(pairs: list[tuple[int, int]], split: str, n: int) -> pl.DataFrame:
+    rows = [(pu, do) for pu, do in pairs for _ in range(n)]
+    return pl.DataFrame(
+        rows, schema={"pu_zone": pl.UInt16, "do_zone": pl.UInt16}, orient="row"
+    ).with_columns(pl.lit(split).alias("split"))
+
+
+def test_zone_embeddings_are_built_from_the_train_split_only(tmp_path: object) -> None:
+    """The SVD basis *and* the centring mean must both be train-derived.
+
+    Centring happens after the fit, over the zone axis, so it inherits whatever
+    population the co-occurrence matrix came from. If that matrix ever saw a
+    held-out row, the centre moves and every cosine similarity shifts with it.
+    """
+    import pathlib
+
+    from eta.routing.embeddings import build_zone_embeddings
+
+    clean_dir = pathlib.Path(str(tmp_path)) / "clean"
+    poisoned_dir = pathlib.Path(str(tmp_path)) / "poisoned"
+    clean_dir.mkdir()
+    poisoned_dir.mkdir()
+
+    zone_ids = list(range(1, 13))
+    zones = pl.DataFrame({"zone_id": pl.Series(zone_ids, dtype=pl.UInt16)})
+    honest = _pair_trips([(i, i + 1) for i in range(1, 12)], "train", 50)
+    honest.write_parquet(clean_dir / "enriched_a.parquet")
+
+    # A dense, totally different co-occurrence structure, in held-out splits only.
+    poison = pl.concat(
+        [
+            _pair_trips([(a, b) for a in zone_ids for b in zone_ids], s, 40)
+            for s in ("cal", "val", "test")
+        ]
+    )
+    pl.concat([honest, poison]).write_parquet(poisoned_dir / "enriched_a.parquet")
+
+    clean = build_zone_embeddings(clean_dir / "enriched_*.parquet", zones, dims=4, seed=0)
+    poisoned = build_zone_embeddings(poisoned_dir / "enriched_*.parquet", zones, dims=4, seed=0)
+
+    assert clean.equals(poisoned), (
+        "held-out trips changed the zone embeddings -- either the co-occurrence "
+        "split filter or the centring population is leaking"
+    )
+
+
+def test_zone_embeddings_are_centred() -> None:
+    """Centring is what gives the cosine feature any spread; assert it directly."""
+    import pathlib
+    import tempfile
+
+    import numpy as np
+
+    from eta.routing.embeddings import build_zone_embeddings, embedding_columns
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = pathlib.Path(tmp)
+        zone_ids = list(range(1, 13))
+        zones = pl.DataFrame({"zone_id": pl.Series(zone_ids, dtype=pl.UInt16)})
+        _pair_trips(
+            [(a, b) for a in zone_ids for b in zone_ids if (a + b) % 3 == 0], "train", 30
+        ).write_parquet(d / "enriched_a.parquet")
+
+        emb = build_zone_embeddings(d / "enriched_*.parquet", zones, dims=4, seed=0)
+
+    vectors = emb.select(embedding_columns(4)).to_numpy()
+    assert np.allclose(vectors.mean(axis=0), 0.0, atol=1e-5), (
+        "embedding columns are not mean-centred"
+    )

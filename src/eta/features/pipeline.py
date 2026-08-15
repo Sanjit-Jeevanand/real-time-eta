@@ -49,7 +49,7 @@ def assemble(
         history = static.zone_history.select(
             pl.col("zone_id").cast(pl.UInt16).alias(f"{side}_zone"),
             pl.col("hist_mean_duration_s").alias(f"{side}_hist_mean_duration_s"),
-            pl.col("free_flow_speed_ms").alias(f"{side}_free_flow_speed_ms"),
+            pl.col("reference_speed_ms").alias(f"{side}_reference_speed_ms"),
         )
         frame = frame.join(zones.lazy(), on=f"{side}_zone", how="left").join(
             history.lazy(), on=f"{side}_zone", how="left"

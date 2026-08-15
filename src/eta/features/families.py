@@ -145,14 +145,14 @@ def _register_congestion() -> None:
                 lambda w_: lambda _ctx: (
                     pl.col(f"distance_m_{w_}m") / pl.col(f"duration_s_{w_}m").clip(1.0, None)
                 )
-                / pl.col("pu_free_flow_speed_ms").clip(0.1, None)
+                / pl.col("pu_reference_speed_ms").clip(0.1, None)
             )(w),
             (
                 lambda w_: lambda ctx: (
                     ctx.cong("distance", ctx.pu_zone, w_)
                     / max(ctx.cong("duration", ctx.pu_zone, w_), 1.0)
                 )
-                / max(_f(ctx.pu.get("free_flow_speed_ms")), 0.1)
+                / max(_f(ctx.pu.get("reference_speed_ms")), 0.1)
             )(w),
             redis_keys=(f"cong:distance:{{zone}}:{w}m", f"cong:duration:{{zone}}:{w}m"),
         )

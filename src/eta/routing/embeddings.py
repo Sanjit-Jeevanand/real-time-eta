@@ -51,12 +51,15 @@ def build_zone_embeddings(
     embedded = svd.fit_transform(symmetric)
     explained = float(svd.explained_variance_ratio_.sum())
 
+    embedded = embedded - embedded.mean(axis=0, keepdims=True)
+
     log.info(
         "zone_embeddings_built",
         zones=len(zone_ids),
         dims=dims,
         explained_variance=round(explained, 4),
         empty_rows=int((matrix.sum(axis=1) == 0).sum()),
+        centred=True,
     )
 
     out = pl.DataFrame(

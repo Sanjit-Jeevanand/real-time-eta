@@ -73,7 +73,7 @@ class StaticTables:
                 "is_airport": float(bool(r["is_airport"])),
                 "borough_id": float(BOROUGH_IDS.get(str(r["borough"]), 0)),
                 "hist_mean_duration_s": float(h.get("hist_mean_duration_s") or 0.0),
-                "free_flow_speed_ms": float(h.get("free_flow_speed_ms") or 8.0),
+                "reference_speed_ms": float(h.get("reference_speed_ms") or 8.0),
             }
             out[zid]["_embedding"] = emb.get(zid, [])  # type: ignore[assignment]
         return out

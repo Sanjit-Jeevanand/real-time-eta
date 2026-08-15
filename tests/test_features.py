@@ -279,7 +279,7 @@ def test_congestion_speed_ratio_agrees() -> None:
         "distance_m_15m": 20_000.0,
         "duration_s_15m": 2_000.0,
         "completed_15m": 40,
-        "pu_free_flow_speed_ms": 12.5,
+        "pu_reference_speed_ms": 12.5,
         "pu_area_km2": 2.0,
     }
     names = ["zone_speed_ratio_15m", "zone_trip_density_15m", "zone_mean_trip_duration_15m"]
@@ -289,7 +289,7 @@ def test_congestion_speed_ratio_agrees() -> None:
             7,
             9,
             _t(1, 9),
-            pu={"free_flow_speed_ms": 12.5, "area_km2": 2.0},
+            pu={"reference_speed_ms": 12.5, "area_km2": 2.0},
             congestion={
                 congestion_key("distance", 7, 15): 20_000.0,
                 congestion_key("duration", 7, 15): 2_000.0,
@@ -360,3 +360,137 @@ def test_congestion_join_matches_across_time_units() -> None:
     )
     out = attach_congestion(request, state).collect()
     assert out["completed_60m"][0] == 1
+
+
+def test_reference_speed_prefers_observed_night_speed(tmp_path: object) -> None:
+    import pathlib
+
+    from eta.features.congestion import MIN_NIGHT_TRIPS, build_zone_history
+
+    d = pathlib.Path(str(tmp_path))
+    zone = 5
+    night_rows = [(zone, _t(1, 3), 8.0, 3600, zone) for _ in range(MIN_NIGHT_TRIPS)]
+    pl.DataFrame(
+        night_rows,
+        schema={
+            "pu_zone": pl.UInt16,
+            "request_datetime": pl.Datetime("us", NYC_TZ),
+            "trip_miles": pl.Float64,
+            "trip_duration_s": pl.Int64,
+            "do_zone": pl.UInt16,
+        },
+        orient="row",
+    ).with_columns(
+        pl.lit("train").alias("split"),
+        pl.col("request_datetime").alias("dropoff_datetime"),
+        pl.lit(3600).alias("total_time_s"),
+    ).write_parquet(d / "enriched_synth.parquet")
+
+    matrix = pl.DataFrame(
+        {
+            "pu_zone": pl.Series([zone], dtype=pl.UInt16),
+            "do_zone": pl.Series([zone + 1], dtype=pl.UInt16),
+            "route_distance_m": pl.Series([9000.0], dtype=pl.Float32),
+            "free_flow_duration_s": pl.Series([300.0], dtype=pl.Float32),
+            "is_intra_zone": [False],
+        }
+    )
+    hist = build_zone_history(d / "enriched_*.parquet", matrix, "train")
+    row = hist.filter(pl.col("zone_id") == zone).row(0, named=True)
+
+    assert row["reference_observed"] is True
+    night_speed_ms = 8.0 * 1609.344 / 3600.0
+    assert row["reference_speed_ms"] == pytest.approx(night_speed_ms, rel=1e-3)
+    assert row["reference_speed_ms"] != pytest.approx(row["routed_speed_ms"])
+
+
+def _night_trips(zone: int, mph: float, split: str, n: int) -> pl.DataFrame:
+    """n identical 3am trips in `zone` at `mph`, tagged with `split`."""
+    rows = [(zone, _t(1, 3), mph, 3600, zone) for _ in range(n)]
+    return pl.DataFrame(
+        rows,
+        schema={
+            "pu_zone": pl.UInt16,
+            "request_datetime": pl.Datetime("us", NYC_TZ),
+            "trip_miles": pl.Float64,
+            "trip_duration_s": pl.Int64,
+            "do_zone": pl.UInt16,
+        },
+        orient="row",
+    ).with_columns(
+        pl.lit(split).alias("split"),
+        pl.col("request_datetime").alias("dropoff_datetime"),
+        pl.lit(3600).alias("total_time_s"),
+    )
+
+
+def _tiny_matrix(zone: int) -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "pu_zone": pl.Series([zone], dtype=pl.UInt16),
+            "do_zone": pl.Series([zone + 1], dtype=pl.UInt16),
+            "route_distance_m": pl.Series([9000.0], dtype=pl.Float32),
+            "free_flow_duration_s": pl.Series([300.0], dtype=pl.Float32),
+            "is_intra_zone": [False],
+        }
+    )
+
+
+def test_reference_speed_is_built_from_the_train_split_only(tmp_path: object) -> None:
+    """Adversarial provenance check.
+
+    The reference is frozen into an artifact that cal/val/test and serving all read,
+    so a non-train row leaking in would contaminate every downstream feature value.
+    Poison the held-out splits with absurdly fast night trips; the artifact must not
+    move by a single bit.
+    """
+    import pathlib
+
+    from eta.features.congestion import MIN_NIGHT_TRIPS, build_zone_history
+
+    zone = 5
+    clean_dir = pathlib.Path(str(tmp_path)) / "clean"
+    poisoned_dir = pathlib.Path(str(tmp_path)) / "poisoned"
+    clean_dir.mkdir()
+    poisoned_dir.mkdir()
+
+    honest = _night_trips(zone, 8.0, "train", MIN_NIGHT_TRIPS)
+    honest.write_parquet(clean_dir / "enriched_a.parquet")
+
+    # 200mph night trips in every split we are not allowed to look at.
+    poison = pl.concat(
+        [_night_trips(zone, 200.0, s, MIN_NIGHT_TRIPS * 5) for s in ("cal", "val", "test")]
+    )
+    pl.concat([honest, poison]).write_parquet(poisoned_dir / "enriched_a.parquet")
+
+    matrix = _tiny_matrix(zone)
+    clean = build_zone_history(clean_dir / "enriched_*.parquet", matrix, "train")
+    poisoned = build_zone_history(poisoned_dir / "enriched_*.parquet", matrix, "train")
+
+    assert clean.equals(poisoned), (
+        "held-out night trips changed the reference speed artifact -- the split "
+        "filter in observed_night_speed is not holding"
+    )
+    honest_speed = 8.0 * 1609.344 / 3600.0
+    assert poisoned.filter(pl.col("zone_id") == zone)["reference_speed_ms"][0] == pytest.approx(
+        honest_speed, rel=1e-3
+    )
+
+
+def test_reference_speed_falls_back_to_routed_below_the_night_trip_floor(
+    tmp_path: object,
+) -> None:
+    import pathlib
+
+    from eta.features.congestion import MIN_NIGHT_TRIPS, build_zone_history
+
+    d = pathlib.Path(str(tmp_path))
+    zone = 5
+    _night_trips(zone, 8.0, "train", MIN_NIGHT_TRIPS - 1).write_parquet(d / "enriched_a.parquet")
+
+    hist = build_zone_history(d / "enriched_*.parquet", _tiny_matrix(zone), "train")
+    row = hist.filter(pl.col("zone_id") == zone).row(0, named=True)
+
+    assert row["reference_observed"] is False
+    assert row["reference_speed_ms"] == pytest.approx(row["routed_speed_ms"])
+    assert row["reference_speed_ms"] == pytest.approx(9000.0 / 300.0, rel=1e-3)

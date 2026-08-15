@@ -6,6 +6,8 @@ import sys
 import polars as pl
 
 from eta.config import get_settings
+from eta.data.splits import Split
+from eta.features.congestion import build_zone_history
 from eta.logging import bind_request_id, configure_logging, get_logger
 from eta.routing.detour import build_detour_ratios
 from eta.routing.embeddings import build_zone_embeddings
@@ -22,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
         "stage",
         nargs="?",
         default="all",
-        choices=("zones", "matrix", "embeddings", "detour", "all"),
+        choices=("zones", "matrix", "embeddings", "detour", "history", "all"),
     )
     args = parser.parse_args(argv)
 
@@ -62,6 +64,13 @@ def main(argv: list[str] | None = None) -> int:
         dest = processed / "detour_ratios.parquet"
         detour.write_parquet(dest)
         log.info("detour_written", path=str(dest), rows=detour.height)
+
+    if args.stage in ("history", "all"):
+        matrix = pl.read_parquet(matrix_path)
+        history = build_zone_history(enriched, matrix, Split.TRAIN.value)
+        dest = processed / "zone_history.parquet"
+        history.write_parquet(dest)
+        log.info("history_written", path=str(dest), rows=history.height)
 
     return 0
 
