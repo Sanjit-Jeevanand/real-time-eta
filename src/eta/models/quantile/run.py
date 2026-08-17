@@ -134,6 +134,12 @@ def run_quantile_phase(
         promised = matrix[:, served]
         cost = float(np.mean(business_cost(val_actual, promised, settings.cost)))
         val_costs.setdefault(strategy, []).append(cost)
+        log.info(
+            "val_cost",
+            strategy=strategy,
+            seed_index=len(val_costs[strategy]) - 1,
+            val_cost=round(cost, 3),
+        )
 
     def record(
         strategy: str,
@@ -372,6 +378,12 @@ def run_quantile_phase(
         "tuned_params": params_by_alpha,
         "crossing": {k: [asdict(r) for r in reps] for k, reps in crossing_reports.items()},
         "enforced": enforced_by,
+        "selection": asdict(selection),
+        # Per-seed, so the ordering can be checked seed by seed rather than only on
+        # the mean -- a champion that wins on average but loses on a seed is a
+        # near-tie however clean the mean looks.
+        "val_costs": val_costs,
+        "clamp": clamp_rows,
     }
     (reports / "quantile_summary.json").write_text(json.dumps(summary, indent=2) + "\n")
     return results, summary

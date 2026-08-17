@@ -257,8 +257,40 @@ def test_guard_raises_when_lightgbm_was_imported_first() -> None:
     proc = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=False, env=env
     )
-    assert proc.returncode != 0
-    assert "deadlocks" in proc.stderr, proc.stderr[-500:]
+
+    # The guard only has something to protect when torch is actually installed.
+    # Where it is not -- CI installs dev+geo only -- there is one OpenMP runtime,
+    # no conflict to order, and raising would be wrong. Both branches are asserted
+    # rather than assuming the developer's environment.
+    import importlib.util
+
+    if importlib.util.find_spec("torch") is None:
+        assert proc.returncode == 0, proc.stderr[-500:]
+    else:
+        assert proc.returncode != 0
+        assert "deadlocks" in proc.stderr, proc.stderr[-500:]
+
+
+def test_guard_is_a_no_op_when_torch_is_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulates the CI environment, where the optional torch extra is absent.
+
+    With no torch there is a single OpenMP runtime, so there is nothing to order and
+    the guard must return quietly -- even if lightgbm is already loaded.
+    """
+    import importlib.util
+    import sys as _sys
+
+    from eta.models.quantile import _openmp
+
+    monkeypatch.setitem(_sys.modules, "lightgbm", object())
+    monkeypatch.delitem(_sys.modules, "torch", raising=False)
+    monkeypatch.setattr(
+        importlib.util, "find_spec", lambda name: None if name == "torch" else object()
+    )
+
+    assert _openmp.preload_torch_before_lightgbm() == (
+        "torch not installed -- single OpenMP runtime, nothing to order"
+    )
 
 
 def test_guard_is_a_no_op_once_torch_is_loaded() -> None:
@@ -571,3 +603,37 @@ def test_win_rate_is_not_dressed_up_as_a_probability() -> None:
     )
     assert "not a probability of superiority" in md
     assert "no p-value is reported" in md.lower()
+
+
+def test_the_summary_persists_what_the_selection_claim_rests_on() -> None:
+    """A report that cannot be re-checked from its own artifacts is not evidence.
+
+    The first validation-selected run wrote `selection.md` but omitted `selection`
+    and `val_costs` from the machine-readable summary, because a string replacement
+    silently failed to match. The per-seed ordering behind the margin claim was
+    therefore unrecoverable without a five-hour re-run.
+    """
+    import ast
+    import inspect
+
+    from eta.models.quantile import run as run_mod
+
+    tree = ast.parse(inspect.getsource(run_mod))
+    fn = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "run_quantile_phase"
+    )
+    summaries = [
+        n
+        for n in ast.walk(fn)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "summary" for t in n.targets)
+        and isinstance(n.value, ast.Dict)
+    ]
+    assert summaries, "no summary dict found"
+    node = summaries[0].value
+    assert isinstance(node, ast.Dict)
+    keys = {k.value for k in node.keys if isinstance(k, ast.Constant)}
+    for required in ("selection", "val_costs", "clamp"):
+        assert required in keys, f"summary drops '{required}'; the claim becomes uncheckable"

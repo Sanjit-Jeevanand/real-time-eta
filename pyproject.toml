@@ -108,6 +108,14 @@ disable_error_code = ["prop-decorator"]
 module = ["tests.test_config"]
 disable_error_code = ["misc"]
 
+# torch is an optional extra. Where it is not installed -- CI installs dev+geo only,
+# and the serving box must stay torch-free -- `torch.nn.Module` resolves to Any, and
+# strict mode rejects subclassing Any. The nn comparator legitimately subclasses it,
+# so the check is disabled for that one module rather than for the whole project.
+[[tool.mypy.overrides]]
+module = ["eta.models.quantile.nn"]
+disable_error_code = ["misc"]
+
 [[tool.mypy.overrides]]
 module = [
     "lightgbm.*",

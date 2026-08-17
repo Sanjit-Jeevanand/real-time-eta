@@ -126,19 +126,44 @@ headline comparison is against this L2 model rather than against a weak baseline
 
 | model | business cost | vs L2 | MAE (min) | **late rate** | vs 25% target |
 |---|---|---|---|---|---|
-| LightGBM P75, composed | **477.5 ± 1.7** | **−7.3%** | 5.62 | **23.0%** | −2.0pp |
-| LightGBM P75, sorted | 480.0 ± 0.6 | −6.8% | 5.75 | 22.2% | −2.8pp |
-| LightGBM P75, raw | 480.1 ± 0.7 | −6.8% | 5.75 | 22.2% | −2.8pp |
+| **LightGBM P75, composed** (champion) | **476.0 ± 1.3** | **−7.6%** | 5.62 | **22.7%** | −2.3pp |
+| LightGBM P75, sorted | 479.7 ± 1.1 | −6.9% | 5.71 | 22.5% | −2.5pp |
+| LightGBM P75, raw | 479.9 ± 1.3 | −6.9% | 5.71 | 22.5% | −2.5pp |
 | LightGBM, L2 loss | 515.1 ± 0.2 | — | 4.61 | 39.0% | +14.0pp |
-| multi-head NN, ordered | 602.0 ± 7.9 | +16.9% | 8.75 | 11.1% | −13.9pp |
-| multi-head NN, free | 650.1 ± 27.4 | +26.2% | 9.73 | 8.8% | −16.2pp |
+| multi-head NN, ordered *(untuned)* | 603.7 ± 12.2 | +17.2% | 8.80 | 11.0% | −14.0pp |
+| multi-head NN, free *(untuned)* | 658.4 ± 43.2 | +27.8% | 9.90 | 8.5% | −16.5pp |
 
 Same 546,261-row test split, same population digest, three seeds. The late rate moves
-from **39.0% to 23.0%** against a 25% target, and business cost falls 7.3% — while MAE
-gets *worse* (4.61 → 5.62). That is the whole thesis in one table: the quantile model is
-not a better predictor of the average, it is a better answer to the question being asked.
+from **39.0% to 22.7%** against a 25% economic target, and business cost falls 7.6% —
+while MAE gets *worse* (4.61 → 5.62). That is the whole thesis in one table: the quantile
+model is not a better predictor of the average, it is a better answer to the question
+being asked.
 
-**The plan projected 20–30%. The measured figure is −7.3%, and the plan's bullet has been
+**The champion was chosen on validation, not on test.** The three crossing strategies were
+compared on the validation split (composed 516.8, sorted 519.7, raw 519.8), the winner was
+frozen, and the test split was then read once. An earlier version of this table selected on
+test and is kept, labelled, as `reports/quantile_TEST_SELECTED_CONTAMINATED.md`.
+
+### The headline caveat: this gain decays across the test period
+
+| window | champion | L2 | improvement | champion late | L2 late |
+|---|---|---|---|---|---|
+| early | 511.7 | 592.7 | **−13.7%** | 27.4% | 44.5% |
+| middle | 477.1 | 507.5 | **−6.0%** | 22.2% | 38.2% |
+| late | 435.2 | 447.5 | **−2.7%** | 18.9% | 34.9% |
+
+**Spread 10.9pp.** The −7.6% is an average over an advantage that falls fivefold from the
+start of the test period to the end. Quote it as *"−7.6% averaged over the test period,
+ranging −13.7% to −2.7% across consecutive thirds"* — not as a stable rate. Phase 7
+independently found temporal shift in the same data (conformal coverage at 89.1% against a
+90% target); two measurements pointing at the same drift is worth more than either alone.
+
+Paired daily blocks: the champion wins **28 of 31 days**, longest losing streak **one day**,
+median daily difference −24.3. So it is a trend, not a few bad days. The win rate is not a
+probability of superiority and no p-value is reported — consecutive days are serially
+correlated, so they are not independent trials.
+
+**The plan projected 20–30%. The measured figure is −7.6%, and the plan's bullet has been
 rewritten to say so.** The L2 baseline was fitted on identical features with a comparable
 budget over three seeds, so it is a strong comparator rather than a strawman, and closing
 a 16pp late-rate gap is where the value landed. A projection that survives contact with
@@ -259,7 +284,7 @@ make latency-full   # per-stage latency, real Redis + compiled models
 | Worst-segment miscalibration | **3.4 → 1.6pp** on the 90% interval, and **9.1 → 7.0pp** on the served P75. The plan projected a 12–18pp starting point; the actual starting point was far smaller, so the dramatic reduction it implies never existed to be made. |
 | "Sub-25ms serving" | **Measured at p99 0.627ms on an M4** with a real Redis over TCP and Treelite-compiled models — but that is loopback, 2,000 sequential requests, no concurrency, and not the 2-vCPU target box. The budget is not discharged by it. |
 | Deployment | **Nothing is deployed.** No Hetzner box, no HTTPS endpoint, no Grafana dashboard. The service runs and is tested locally; the deployment half of Phase 8 is outstanding. |
-| Business cost improvement | **−7.3%** against a strong L2 baseline on identical features. The plan originally projected 20–30%; that bullet has been rewritten to the measured number rather than left as a target. |
+| Business cost improvement | **−7.6%** against a strong L2 baseline on identical features, and **not stable** — it ranges −13.7% to −2.7% across consecutive thirds of the test period. The plan originally projected 20–30%; that bullet has been rewritten to the measured number rather than left as a target. |
 | Zone "reference speed" | An **empirical 3–5am median speed**, used as a low-congestion reference. It is deliberately *not* called a free-flow speed: 3–5am is the quietest window in the data, but nothing here shows it is uncongested in the traffic-engineering sense. It replaced an OSRM-routed reference that measured 0.61 against real 3–5am trips — and 0.87 in airport zones, whose highway-dominated trips resemble the routes that reference was built from. 251 of 263 zones use the observed value; 12 fall below the 200-trip floor and keep the routed one. The feature it feeds, `zone_speed_ratio_*`, is therefore a **relative degradation** measure, not an absolute speed. |
 
 Every number is real. The setup is stated plainly so no one has to guess which parts are
